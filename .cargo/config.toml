@@ -1,0 +1,3 @@
+[alias]
+run-client = "run --bin client_app"
+run-server = "run --bin server_app"

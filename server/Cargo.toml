@@ -1,0 +1,24 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "server"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "server"
+path = "src/bin/main.rs"
+
+[dependencies]
+common.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+x509-parser.workspace = true
+thiserror.workspace = true
+log.workspace = true
+env_logger.workspace = true

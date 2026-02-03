@@ -1,0 +1,22 @@
+[package]
+name = "common"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["rlib"]  
+
+[dependencies]
+anyhow.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+directories.workspace = true
+sha2.workspace = true
+rcgen.workspace = true
+quinn.workspace = true
+tokio.workspace = true
+x509-parser.workspace = true
+thiserror.workspace = true
+log.workspace = true
+env_logger.workspace = true
