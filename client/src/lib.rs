@@ -4,12 +4,16 @@ use std::{io, net::SocketAddr, sync::Arc};
 
 use common::{
     certificate::{self, get_local_identity},
-    config::{ALPN_PROTOCOLS, get_config_dir},
+    config::{ALPN_PROTOCOLS, SERVICE_TYPE, get_config_dir},
     connection::{self, Connection, classify_connection},
 };
+use flume::RecvError;
+use log::{debug, info};
+use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
 use quinn::{ClientConfig, Endpoint, crypto::rustls::QuicClientConfig};
 use rustls::pki_types::CertificateDer;
 use thiserror::Error;
+use tokio::sync::mpsc::{Receiver, channel};
 
 use crate::cert_verifier::CertVerifier;
 
@@ -41,6 +45,15 @@ pub enum ClientError {
 
     #[error("Connection classification failed")]
     ConnectionClassificationFailed(#[from] connection::ConnectionError),
+
+    #[error("Failed to create mDNS deamon: {0}")]
+    CreatingMDNSDaemonFailed(mdns_sd::Error),
+
+    #[error("Failed to browse mDNS services: {0}")]
+    BrowsingMDNSFailed(mdns_sd::Error),
+
+    #[error("Failed to receive mDNS service event: {0}")]
+    ReceivingMDNSEventFailed(RecvError),
 }
 
 pub struct Client {
@@ -77,6 +90,43 @@ impl Client {
             cert: Arc::new(cert),
             dir: config_dir.to_path_buf(),
         })
+    }
+
+    pub fn find_server(&self) -> Result<Receiver<Box<ResolvedService>>, ClientError> {
+        let mdns_daemon = ServiceDaemon::new().map_err(ClientError::CreatingMDNSDaemonFailed)?;
+        let mdns_receiver = mdns_daemon
+            .browse(SERVICE_TYPE)
+            .map_err(ClientError::BrowsingMDNSFailed)?;
+
+        let (sender, receiver) = channel::<Box<ResolvedService>>(10);
+
+        tokio::spawn(async move {
+            let duration = std::time::Duration::from_secs(30);
+
+            let result = tokio::time::timeout(duration, async {
+                while let Ok(event) = mdns_receiver.recv_async().await {
+                    match event {
+                        ServiceEvent::ServiceResolved(service) => {
+                            info!("Resolved service: {}", service.fullname);
+                            if sender.send(service).await.is_err() {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            })
+            .await;
+
+            if result.is_err() {
+                debug!("mDNS discovery timed out after {:?}", duration);
+            }
+
+            mdns_daemon.shutdown().ok();
+            debug!("mDNS daemon closed.");
+        });
+
+        Ok(receiver)
     }
 
     pub async fn connect_to(

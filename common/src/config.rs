@@ -17,6 +17,7 @@ pub const CLIENT_ADDR: SocketAddr = SocketAddr::new(LOCALHOST_V4, 5000);
 pub const SERVER_ADDR: SocketAddr = SocketAddr::new(LOCALHOST_V4, 5001);
 
 pub const ALPN_PROTOCOLS: &[&[u8]] = &[b"deskheld-sync"];
+pub const SERVICE_TYPE: &str = "_deskheld._udp.local.";
 
 const CONFIG_DIR_FALLBACK: &str = ".";
 
