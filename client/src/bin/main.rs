@@ -1,6 +1,7 @@
 use std::{
     io::{Write, stdout},
     net::SocketAddr,
+    sync::Arc,
 };
 
 use anyhow::Context;
@@ -29,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let client =
-        Client::new(common_name, domain_name, client_address).expect("Failed to create client");
+        Client::new(common_name, domain_name, client_address).context("Failed to create client")?;
 
     println!(
         "Browsing for a host... (To select a sepcific host to connect to, enter the index of the host during browsing)"
@@ -89,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
     let address = selected_device
         .get_addresses()
         .iter()
-        .next()
+        .find(|ip| ip.is_ipv4())
         .map(|ip| std::net::SocketAddr::new(ip.to_ip_addr(), port))
         .context("Selected device has no address")?;
 
@@ -106,13 +107,8 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("Failed to connect to server")?;
 
-    match connection {
-        Accepted(connection) => {
-            println!(
-                "Successfully connected to server with fingerprint: {}",
-                connection.fingerprint()
-            );
-        }
+    let connection = match connection {
+        Accepted(connection) => connection,
         Quarantined(connection) => {
             println!(
                 "Connected to server but it is quarantined with fingerprint: {}",
@@ -128,14 +124,60 @@ async fn main() -> anyhow::Result<()> {
                 .read_line(&mut input)
                 .context("Failed to read user input")?;
             if input.trim().to_lowercase() == "y" {
-                connection.accept().context("Failed to accept connection")?;
                 println!("Connection accepted");
+                Arc::new(connection.accept().context("Failed to accept connection")?)
             } else {
                 connection.reject();
-                println!("Connection rejected");
+                println!("Connection rejected, exiting...");
+                std::process::exit(1);
+            }
+        }
+    };
+
+    println!(
+        "Successfully connected to server with fingerprint: {}",
+        connection.fingerprint()
+    );
+
+    start_simple_chat(&connection.connection).await?;
+
+    Ok(())
+}
+
+async fn start_simple_chat(conn: &quinn::Connection) -> anyhow::Result<()> {
+    let (mut send, mut recv) = conn.open_bi().await?;
+
+    println!("--- Chat gestartet! Tippe etwas ein ---");
+
+    let mut stdin_reader = BufReader::new(tokio::io::stdin()).lines();
+    let mut buf = vec![0u8; 1024];
+
+    loop {
+        select! {
+            line = stdin_reader.next_line() => {
+                if let Ok(Some(text)) = line {
+                    send.write_all(text.as_bytes()).await?;
+                    send.write_all(b"\n").await?;
+                }
+            }
+
+            res = recv.read(&mut buf) => {
+                match res {
+                    Ok(Some(n)) if n > 0 => {
+                        let msg = String::from_utf8_lossy(&buf[..n]);
+                        print!("\x1B[32mPartner:\x1B[0m {}", msg);
+                    }
+                    Ok(Some(_)) | Ok(None) => {
+                        println!("\nVerbindung vom Partner geschlossen.");
+                        break;
+                    }
+                    Err(e) => {
+                        eprintln!("\nFehler beim Lesen: {}", e);
+                        break;
+                    }
+                }
             }
         }
     }
-
     Ok(())
 }

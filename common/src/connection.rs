@@ -135,7 +135,8 @@ impl QuarantineConnection {
 
 pub struct AcceptedConnection {
     fingerprint: String,
-    connection: quinn::Connection,
+    pub connection: quinn::Connection,
+    // TODO: Make public
     certificate: Arc<CertificateDer<'static>>,
     dir: std::path::PathBuf,
 }

@@ -152,6 +152,7 @@ fn save_identity(cert: &Certificate, key: &KeyPair, dir: &Path) -> Result<(), Ce
         key_path.display()
     );
 
+    // TOOD: Ordner erstellen, falls er nicht existiert
     let cert_pem = cert.pem();
     fs::write(&cert_path, cert_pem).map_err(CertificateError::WritingIdentityToFileFailed)?;
 
