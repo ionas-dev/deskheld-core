@@ -1,0 +1,16 @@
+[package]
+name = "deskheld-ffi"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+client.workspace = true
+server.workspace = true
+common.workspace = true
+mdns-sd.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uniffi = { version = "0.29.4" }

@@ -3,6 +3,7 @@ members = [
     "common",
     "client",
     "server",
+    "ffi",
 ]
 resolver = "2"
 
@@ -24,6 +25,8 @@ thiserror = "2.0.18"
 tokio = { version = "1.49.0", features = ["full"] }
 x509-parser = "0.18.0"
 common = { path = "./common" }
+client = { path = "./client" }
+server = { path = "./server" }
 log = "0.4"
 env_logger = "0.11.0"
 mdns-sd = "0.17.2"
