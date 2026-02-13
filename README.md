@@ -20,26 +20,6 @@ This produces:
 - `target/swift/server`
 - `target/swift/client`
 
-## Logging
-
-Rust logging is initialized automatically by the library when creating a `Server` or `Client`,
-but only if `RUST_LOG` is set.
-
-Examples:
-
-```bash
-RUST_LOG=debug
-RUST_LOG=server=debug,client=debug,mdns_sd=debug
-```
-
-In Xcode, set `RUST_LOG` in `Edit Scheme > Run > Arguments > Environment Variables`.
-No Swift-side logger initialization call is required.
-
-## Async Runtime
-
-The library creates and reuses an internal Tokio runtime on first use.
-Swift callers do not need to create or manage a Tokio runtime.
-
 ## Troubleshooting
 
 ### mDNS Service Not Found with macOS Host
