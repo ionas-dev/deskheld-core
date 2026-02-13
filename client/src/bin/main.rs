@@ -1,3 +1,5 @@
+//! Simple interactive CLI for manual Deskheld client testing.
+
 use std::{
     io::{Write, stdout},
     net::SocketAddr,
@@ -14,6 +16,7 @@ use rustls::crypto::ring::default_provider;
 use tokio::io::BufReader;
 use tokio::{io::AsyncBufReadExt, select};
 
+/// Starts the demo client, discovers servers, and opens an interactive connection.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     default_provider().install_default().ok();
@@ -137,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Runs a minimal bidirectional chat loop over a QUIC stream.
 async fn start_simple_chat(conn: &quinn::Connection) -> anyhow::Result<()> {
     let (mut send, mut recv) = conn.open_bi().await?;
 

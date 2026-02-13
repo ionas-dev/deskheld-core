@@ -1,3 +1,5 @@
+//! Simple interactive CLI for manual Deskheld server testing.
+
 use std::{
     io::{Write, stdin, stdout},
     net::SocketAddr,
@@ -13,6 +15,7 @@ use tokio::{
     select,
 };
 
+/// Starts the demo server and accepts incoming connections interactively.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     default_provider().install_default().ok();
@@ -69,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Runs a minimal bidirectional chat loop over an accepted QUIC stream.
 async fn start_simple_chat(conn: &quinn::Connection) -> anyhow::Result<()> {
     let (mut send, mut recv) = conn.accept_bi().await?;
 

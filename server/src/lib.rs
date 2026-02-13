@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 mod cert_verifier;
 
 use std::{
@@ -24,10 +26,14 @@ use tokio::sync::{
 
 use crate::cert_verifier::CertVerifier;
 
+/// QUIC close code used for intentional server shutdown.
 const NORMAL_SHUTDOWN_CODE: quinn::VarInt = quinn::VarInt::from_u32(0x0);
+/// QUIC close reason used for intentional server shutdown.
 const NORMAL_SHUTDOWN_MESSAGE: &[u8] = b"Normal shutdown";
+/// Maximum simultaneous incoming handshakes processed by the server.
 const MAX_CONCURRENT_INCOMING_CONNECTIONS: usize = 10;
 
+/// Errors produced while starting the server, publishing mDNS, or accepting connections.
 #[derive(thiserror::Error, Debug, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum ServerError {
@@ -71,6 +77,7 @@ pub enum ServerError {
     ConnectionClosed,
 }
 
+/// Deskheld server endpoint with mDNS publication lifecycle state.
 #[derive(uniffi::Object)]
 pub struct Server {
     endpoint: quinn::Endpoint,
@@ -84,6 +91,7 @@ pub struct Server {
 
 #[uniffi::export]
 impl Server {
+    /// Creates a new server endpoint with local identity and TLS configuration.
     #[uniffi::constructor]
     pub fn new(
         instance_name: &str,
@@ -120,6 +128,7 @@ impl Server {
         })
     }
 
+    /// Closes the QUIC endpoint and unregisters/shuts down mDNS resources.
     pub fn close(self: &Arc<Self>) {
         self.endpoint
             .close(NORMAL_SHUTDOWN_CODE, NORMAL_SHUTDOWN_MESSAGE);
@@ -146,6 +155,7 @@ impl Server {
         }
     }
 
+    /// Publishes this server via mDNS if it is not already published.
     pub fn publish_service(self: &Arc<Self>) -> Result<(), ServerError> {
         if let Ok(daemon) = self.mdns.lock() {
             if daemon.is_some() {
@@ -198,6 +208,7 @@ impl Server {
         Ok(())
     }
 
+    /// UniFFI wrapper for `open()` exposed as `open` in bindings.
     #[uniffi::method(name = "open")]
     pub fn open_ffi(self: &Arc<Self>) -> Result<ConnectionReceiver, ServerError> {
         let receiver = self.open()?;
@@ -208,6 +219,7 @@ impl Server {
 }
 
 impl Server {
+    /// Starts accepting incoming QUIC connections and streams them through a channel.
     pub fn open(
         self: &Arc<Self>,
     ) -> Result<Receiver<Result<Connection, ServerError>>, ServerError> {
@@ -253,6 +265,7 @@ impl Server {
         Ok(receiver)
     }
 
+    /// Convenience helper that constructs the server and immediately opens it.
     pub fn create_and_open(
         instance_name: &str,
         host_name: &str,
@@ -264,6 +277,9 @@ impl Server {
     }
 }
 
+/// Async receiver wrapper for incoming classified connections.
+///
+/// This exists so UniFFI can expose an object with async receive behavior.
 #[derive(uniffi::Object)]
 pub struct ConnectionReceiver {
     receiver: Mutex<Receiver<Result<Connection, ServerError>>>,
@@ -271,12 +287,14 @@ pub struct ConnectionReceiver {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ConnectionReceiver {
+    /// Awaits and returns the next classified connection from the server.
     pub async fn recv(&self) -> Result<Connection, ServerError> {
         let mut receiver = self.receiver.lock().await;
         receiver.recv().await.ok_or(ServerError::ConnectionClosed)?
     }
 }
 
+// UniFFI bridge for converting `SocketAddr` to and from a string representation.
 uniffi::custom_type!(SocketAddr, String, {
     remote,
     lower: |s| s.to_string(),

@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 mod cert_verifier;
 
 use std::{io, net::SocketAddr, str::FromStr, sync::Arc};
@@ -19,6 +21,7 @@ use tokio::sync::{
 
 use crate::cert_verifier::CertVerifier;
 
+/// Errors produced while creating the client, browsing mDNS, and opening connections.
 #[derive(thiserror::Error, Debug, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum ClientError {
@@ -62,15 +65,21 @@ pub enum ClientError {
     ServiceClosed,
 }
 
+/// Serializable description of a discovered mDNS service.
 #[derive(uniffi::Record)]
 pub struct Service {
+    /// Full mDNS service name.
     pub fullname: String,
+    /// Host name advertised by mDNS.
     pub hostname: String,
+    /// IP addresses advertised by the service.
     pub addresses: Vec<String>,
+    /// Service port.
     pub port: u16,
 }
 
 impl Service {
+    /// Converts an `mdns_sd::ResolvedService` into the public service record.
     fn from_mdns(service: &ResolvedService) -> Self {
         Self {
             fullname: service.fullname.clone(),
@@ -84,6 +93,7 @@ impl Service {
         }
     }
 
+    /// Returns the first available IPv4 socket address for this service.
     pub fn first_socket_addr_v4(&self) -> Option<SocketAddr> {
         self.addresses
             .iter()
@@ -93,6 +103,9 @@ impl Service {
     }
 }
 
+/// Async receiver wrapper for discovered services.
+///
+/// This exists so UniFFI can expose an object with async receive behavior.
 #[derive(uniffi::Object)]
 pub struct ServiceReceiver {
     receiver: Mutex<Receiver<Service>>,
@@ -100,12 +113,14 @@ pub struct ServiceReceiver {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ServiceReceiver {
+    /// Awaits and returns the next discovered service.
     pub async fn recv(&self) -> Result<Service, ClientError> {
         let mut receiver = self.receiver.lock().await;
         receiver.recv().await.ok_or(ClientError::ServiceClosed)
     }
 }
 
+/// QUIC client endpoint with local identity and trust-store context.
 #[derive(uniffi::Object)]
 pub struct Client {
     endpoint: Endpoint,
@@ -115,6 +130,7 @@ pub struct Client {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
+    /// Creates a new Deskheld client endpoint.
     #[uniffi::constructor]
     pub fn new(
         common_name: &str,
@@ -148,6 +164,7 @@ impl Client {
         })
     }
 
+    /// UniFFI wrapper for `find_server()` exposed as `findServer` in bindings.
     #[uniffi::method(name = "findServer")]
     pub fn find_server_ffi(&self) -> Result<ServiceReceiver, ClientError> {
         let receiver = self.find_server()?;
@@ -156,6 +173,7 @@ impl Client {
         })
     }
 
+    /// Connects to a server and classifies trust status from exchanged certificates.
     pub async fn connect_to(
         &self,
         server_address: SocketAddr,
@@ -168,6 +186,7 @@ impl Client {
 }
 
 impl Client {
+    /// Starts mDNS discovery and returns an async channel of matching services.
     pub fn find_server(&self) -> Result<Receiver<Service>, ClientError> {
         let mdns_daemon = ServiceDaemon::new().map_err(ClientError::CreatingMDNSDaemonFailed)?;
         let mdns_receiver = mdns_daemon
@@ -203,6 +222,7 @@ impl Client {
     }
 }
 
+// UniFFI bridge for converting `SocketAddr` to and from a string representation.
 uniffi::custom_type!(SocketAddr, String, {
     remote,
     lower: |s| s.to_string(),

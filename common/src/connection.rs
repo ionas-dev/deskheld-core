@@ -1,3 +1,5 @@
+//! Connection classification and wrapper types shared between server and client.
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -14,6 +16,7 @@ use crate::certificate::{
 const REJECTED_CONNECTION_MESSAGE: &str = "Connection rejected";
 const REJECTED_CONNECTION_CODE: VarInt = VarInt::from_u32(0x0);
 
+/// Errors produced while classifying, accepting, or operating on QUIC connections.
 #[derive(thiserror::Error, Debug, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum ConnectionError {
@@ -33,12 +36,16 @@ pub enum ConnectionError {
     SavingCertificateFailed(certificate::CertificateError),
 }
 
+/// Connection state after trust classification.
 #[derive(uniffi::Enum)]
 pub enum Connection {
+    /// A connection from an unknown or untrusted peer certificate.
     Quarantined(Arc<QuarantineConnection>),
+    /// A connection with a trusted peer certificate.
     Accepted(Arc<AcceptedConnection>),
 }
 
+/// Classifies a QUIC connection as accepted or quarantined based on peer trust.
 pub fn classify_connection(
     connection: quinn::Connection,
     local_cert: &CertificateDer,
@@ -86,6 +93,7 @@ pub fn classify_connection(
     }
 }
 
+/// QUIC connection wrapper for peers that have not been explicitly trusted yet.
 #[derive(uniffi::Object)]
 pub struct QuarantineConnection {
     fingerprint: String,
@@ -96,8 +104,9 @@ pub struct QuarantineConnection {
 
 #[uniffi::export]
 impl QuarantineConnection {
-    /// Accepts a quarantined connection, and returns transformes it into an accepted connection.
-    /// This also saves the peer's certificate as a trusted certificate for future connections.
+    /// Accepts a quarantined connection and converts it to an accepted connection.
+    ///
+    /// The peer certificate is persisted as trusted for future sessions.
     pub fn accept(&self) -> Result<AcceptedConnection, ConnectionError> {
         save_trusted_certificate(&self.certificate, &self.fingerprint, &self.dir)
             .map_err(ConnectionError::SavingCertificateFailed)?;
@@ -110,7 +119,7 @@ impl QuarantineConnection {
         })
     }
 
-    /// Rejects a quarantined connection and closes it
+    /// Rejects a quarantined connection and closes it.
     pub fn reject(&self) {
         self.connection.close(
             REJECTED_CONNECTION_CODE,
@@ -118,11 +127,11 @@ impl QuarantineConnection {
         );
     }
 
-    /// Returns the fingerprint of the quarantined connection.
-    /// This is a combination of the peer's certificate and the server's certificate.
+    /// UniFFI wrapper for `fingerprint()` exposed as `fingerprint` in bindings.
     ///
-    /// *This function should not be used from a rust caller, but instead is used for bindings.
-    /// Instead use QuarantinedConnection::fingerprint*
+    /// Returns the combined peer/local certificate pairing fingerprint.
+    ///
+    /// Rust callers should prefer `QuarantineConnection::fingerprint`.
     #[uniffi::method(name = "fingerprint")]
     pub fn fingerprint_ffi(&self) -> String {
         self.fingerprint.clone()
@@ -130,6 +139,7 @@ impl QuarantineConnection {
 }
 
 impl QuarantineConnection {
+    /// Creates a new quarantined connection wrapper.
     pub fn new(
         fingerprint: String,
         connection: quinn::Connection,
@@ -144,11 +154,13 @@ impl QuarantineConnection {
         }
     }
 
+    /// Returns the pairing fingerprint for this connection.
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
     }
 }
 
+/// QUIC connection wrapper for peers that were accepted as trusted.
 #[derive(uniffi::Object)]
 pub struct AcceptedConnection {
     fingerprint: String,
@@ -160,11 +172,9 @@ pub struct AcceptedConnection {
 
 #[uniffi::export]
 impl AcceptedConnection {
-    /// Returns the fingerprint of the accepted connections.
-    /// This is a combination of the peer's certificate and the server's certificate.
+    /// UniFFI wrapper for `fingerprint()` exposed as `fingerprint` in bindings.
     ///
-    /// *This function should not be used from a rust caller, but instead is used for bindings.
-    /// Instead use AcceptedConnection::fingerprint*
+    /// Rust callers should prefer `AcceptedConnection::fingerprint`.
     #[uniffi::method(name = "fingerprint")]
     pub fn fingerprint_ffi(&self) -> String {
         self.fingerprint.clone()
@@ -172,6 +182,7 @@ impl AcceptedConnection {
 }
 
 impl AcceptedConnection {
+    /// Creates a new accepted connection wrapper.
     pub fn new(
         fingerprint: String,
         connection: quinn::Connection,
@@ -186,11 +197,13 @@ impl AcceptedConnection {
         }
     }
 
+    /// Opens a bidirectional stream on the underlying QUIC connection.
     pub async fn open_bi_stream(&self) -> Result<(SendStream, RecvStream), ConnectionError> {
         let (send_stream, recv_stream) = self.connection.open_bi().await?;
         Ok((send_stream, recv_stream))
     }
 
+    /// Returns the pairing fingerprint for this connection.
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
     }

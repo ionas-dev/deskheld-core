@@ -1,3 +1,5 @@
+//! Certificate and trust-store helpers for local identity management.
+
 use log::{debug, warn};
 use rcgen::string::Ia5String;
 use rcgen::{Certificate, CertificateParams, DnType, KeyPair, SanType};
@@ -16,6 +18,7 @@ const IDENTITY_CERT_FILENAME: &str = "identity.crt";
 const IDENTITY_KEY_FILENAME: &str = "identity.key";
 const TRUSTED_DEVICES_FILENAME: &str = "trusted_devices.json";
 
+/// Errors produced while creating, loading, parsing, and persisting certificates.
 #[derive(thiserror::Error, Debug)]
 pub enum CertificateError {
     #[error("Invalid certificate: {0}")]
@@ -55,12 +58,18 @@ pub enum CertificateError {
     WritingTrustedDevicesFailed(std::io::Error),
 }
 
+/// Persisted trusted peer entry mapped by certificate common name.
 #[derive(Serialize, Deserialize, Debug)]
 struct TrustedDevice {
+    /// Peer certificate common name.
     pub name: String,
+    /// Stored short SHA-256-based fingerprint for certificate pairing.
     pub cert_sha2: String,
 }
 
+/// Loads or creates the local certificate/key pair used for QUIC identity.
+///
+/// If identity files are missing or unreadable, a new self-signed identity is generated.
 pub fn get_local_identity(
     common_name: &str,
     domain_name: &str,
@@ -91,6 +100,7 @@ pub fn get_local_identity(
     }
 }
 
+/// Loads the local certificate/key pair from disk when both files exist.
 fn load_local_identity(
     dir: &Path,
 ) -> Result<Option<(CertificateDer<'static>, PrivateKeyDer<'static>)>, CertificateError> {
@@ -117,6 +127,7 @@ fn load_local_identity(
     Ok(Some((cert_der, PrivateKeyDer::from(key_der))))
 }
 
+/// Generates a new self-signed certificate and key pair.
 fn generate_identity(
     common_name: &str,
     domain_name: &str,
@@ -142,6 +153,7 @@ fn generate_identity(
     Ok((cert, key_pair))
 }
 
+/// Writes a certificate/key pair to the configured identity files.
 fn save_identity(cert: &Certificate, key: &KeyPair, dir: &Path) -> Result<(), CertificateError> {
     let cert_path = dir.join(IDENTITY_CERT_FILENAME);
     let key_path = dir.join(IDENTITY_KEY_FILENAME);
@@ -162,6 +174,9 @@ fn save_identity(cert: &Certificate, key: &KeyPair, dir: &Path) -> Result<(), Ce
     Ok(())
 }
 
+/// Computes a stable 6-digit pairing fingerprint from multiple certificates.
+///
+/// Certificates are sorted before hashing so the result is independent of input order.
 pub fn calculate_fingerprint(certs: Vec<&CertificateDer>) -> String {
     debug!(
         "Calculating SHA-256 fingerprint for {} certificates...",
@@ -185,6 +200,9 @@ pub fn calculate_fingerprint(certs: Vec<&CertificateDer>) -> String {
     fingerprint
 }
 
+/// Checks whether a peer certificate is trusted for the given fingerprint.
+///
+/// Trust is resolved by common name lookup in `trusted_devices.json` and fingerprint match.
 pub fn is_trusted_certificate(
     cert: &CertificateDer,
     fingerprint: &str,
@@ -225,6 +243,9 @@ pub fn is_trusted_certificate(
     Ok(is_trusted)
 }
 
+/// Saves a peer certificate as trusted in `trusted_devices.json`.
+///
+/// The certificate common name is used as device identifier.
 pub fn save_trusted_certificate(
     cert: &CertificateDer<'_>,
     fingerprint: &str,
@@ -262,6 +283,7 @@ pub fn save_trusted_certificate(
     Ok(())
 }
 
+/// Loads all trusted certificates from `trusted_devices.json` if present.
 fn load_trusted_certificates(dir: &Path) -> Result<Option<Vec<TrustedDevice>>, CertificateError> {
     let trusted_devices_path = dir.join(TRUSTED_DEVICES_FILENAME);
 

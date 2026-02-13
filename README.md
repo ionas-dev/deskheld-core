@@ -1,5 +1,12 @@
 # deskheld
 
+## Workspace
+
+- `common`: shared certificate, configuration, connection, and runtime utilities. See `common/README.md`.
+- `client`: QUIC client with mDNS discovery and UniFFI exports. See `client/README.md`.
+- `server`: QUIC server with mDNS publication and UniFFI exports. See `server/README.md`.
+- `uniffi-bindgen`: helper CLI crate for running UniFFI bindgen. See `uniffi-bindgen/README.md`.
+
 ## Swift Bindings
 
 Generate UniFFI Swift bindings for `common`, `server`, and `client` into `target/swift`:

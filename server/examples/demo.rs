@@ -20,6 +20,7 @@
 use mdns_sd::{DaemonEvent, IfKind, ServiceDaemon, ServiceInfo};
 use std::{env, fs::File, thread, time::Duration, time::SystemTime, time::UNIX_EPOCH};
 
+/// Registers an mDNS service and optionally unregisters it after a delay.
 fn main() {
     // Simple command line options.
     let args: Vec<String> = env::args().collect();
@@ -133,6 +134,7 @@ fn main() {
     }
 }
 
+/// Prints CLI usage for the mDNS registration demo.
 fn print_usage() {
     println!("Usage:");
     println!("cargo run --example register <service_type> <instance_name> <hostname> [options]");
