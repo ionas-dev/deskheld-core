@@ -1,0 +1,3 @@
+[bindings.swift]
+bindings_from_dep = true
+external_packages = { common = "Deskheld" }

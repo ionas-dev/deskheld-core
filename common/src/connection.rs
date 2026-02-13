@@ -6,7 +6,6 @@ use std::{
 use log::debug;
 use quinn::{RecvStream, SendStream, VarInt};
 use rustls::pki_types::CertificateDer;
-use thiserror::Error;
 
 use crate::certificate::{
     self, calculate_fingerprint, is_trusted_certificate, save_trusted_certificate,
@@ -15,7 +14,8 @@ use crate::certificate::{
 const REJECTED_CONNECTION_MESSAGE: &str = "Connection rejected";
 const REJECTED_CONNECTION_CODE: VarInt = VarInt::from_u32(0x0);
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum ConnectionError {
     #[error("Failed to open stream: {0}")]
     OpeningStreamFailed(#[from] quinn::ConnectionError),
@@ -33,6 +33,7 @@ pub enum ConnectionError {
     SavingCertificateFailed(certificate::CertificateError),
 }
 
+#[derive(uniffi::Enum)]
 pub enum Connection {
     Quarantined(Arc<QuarantineConnection>),
     Accepted(Arc<AcceptedConnection>),
@@ -85,11 +86,47 @@ pub fn classify_connection(
     }
 }
 
+#[derive(uniffi::Object)]
 pub struct QuarantineConnection {
     fingerprint: String,
     connection: quinn::Connection,
     certificate: Arc<CertificateDer<'static>>,
     dir: PathBuf,
+}
+
+#[uniffi::export]
+impl QuarantineConnection {
+    /// Accepts a quarantined connection, and returns transformes it into an accepted connection.
+    /// This also saves the peer's certificate as a trusted certificate for future connections.
+    pub fn accept(&self) -> Result<AcceptedConnection, ConnectionError> {
+        save_trusted_certificate(&self.certificate, &self.fingerprint, &self.dir)
+            .map_err(ConnectionError::SavingCertificateFailed)?;
+
+        Ok(AcceptedConnection {
+            fingerprint: self.fingerprint.clone(),
+            connection: self.connection.clone(),
+            _certificate: self.certificate.clone(),
+            _dir: self.dir.clone(),
+        })
+    }
+
+    /// Rejects a quarantined connection and closes it
+    pub fn reject(&self) {
+        self.connection.close(
+            REJECTED_CONNECTION_CODE,
+            REJECTED_CONNECTION_MESSAGE.as_bytes(),
+        );
+    }
+
+    /// Returns the fingerprint of the quarantined connection.
+    /// This is a combination of the peer's certificate and the server's certificate.
+    ///
+    /// *This function should not be used from a rust caller, but instead is used for bindings.
+    /// Instead use QuarantinedConnection::fingerprint*
+    #[uniffi::method(name = "fingerprint")]
+    pub fn fingerprint_ffi(&self) -> String {
+        self.fingerprint.clone()
+    }
 }
 
 impl QuarantineConnection {
@@ -107,38 +144,31 @@ impl QuarantineConnection {
         }
     }
 
-    /// Accepts a quarantined connection
-    pub fn accept(&self) -> Result<AcceptedConnection, ConnectionError> {
-        save_trusted_certificate(&self.certificate, &self.fingerprint, &self.dir)
-            .map_err(ConnectionError::SavingCertificateFailed)?;
-
-        Ok(AcceptedConnection {
-            fingerprint: self.fingerprint.clone(),
-            connection: self.connection.clone(),
-            certificate: self.certificate.clone(),
-            dir: self.dir.clone(),
-        })
-    }
-
-    /// Rejects a quarantined connection
-    pub fn reject(&self) {
-        self.connection.close(
-            REJECTED_CONNECTION_CODE,
-            REJECTED_CONNECTION_MESSAGE.as_bytes(),
-        );
-    }
-
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
     }
 }
 
+#[derive(uniffi::Object)]
 pub struct AcceptedConnection {
     fingerprint: String,
+    // TODO: Make private
     pub connection: quinn::Connection,
-    // TODO: Make public
-    certificate: Arc<CertificateDer<'static>>,
-    dir: std::path::PathBuf,
+    _certificate: Arc<CertificateDer<'static>>,
+    _dir: std::path::PathBuf,
+}
+
+#[uniffi::export]
+impl AcceptedConnection {
+    /// Returns the fingerprint of the accepted connections.
+    /// This is a combination of the peer's certificate and the server's certificate.
+    ///
+    /// *This function should not be used from a rust caller, but instead is used for bindings.
+    /// Instead use AcceptedConnection::fingerprint*
+    #[uniffi::method(name = "fingerprint")]
+    pub fn fingerprint_ffi(&self) -> String {
+        self.fingerprint.clone()
+    }
 }
 
 impl AcceptedConnection {
@@ -151,8 +181,8 @@ impl AcceptedConnection {
         Self {
             fingerprint,
             connection,
-            certificate,
-            dir,
+            _certificate: certificate,
+            _dir: dir,
         }
     }
 

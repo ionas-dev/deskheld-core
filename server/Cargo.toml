@@ -6,7 +6,7 @@ edition.workspace = true
 [lib]
 name = "server"
 path = "src/lib.rs"
-crate-type = ["rlib"]
+crate-type = ["rlib", "cdylib", "staticlib"]
 
 [[bin]]
 name = "server"
@@ -23,3 +23,4 @@ thiserror.workspace = true
 log.workspace = true
 env_logger.workspace = true
 mdns-sd.workspace = true
+uniffi.workspace = true

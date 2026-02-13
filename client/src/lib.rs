@@ -1,6 +1,6 @@
 mod cert_verifier;
 
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{io, net::SocketAddr, str::FromStr, sync::Arc};
 
 use common::{
     certificate::{self, get_local_identity},
@@ -12,12 +12,15 @@ use log::{debug, info};
 use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
 use quinn::{ClientConfig, Endpoint, crypto::rustls::QuicClientConfig};
 use rustls::pki_types::CertificateDer;
-use thiserror::Error;
-use tokio::sync::mpsc::{Receiver, channel};
+use tokio::sync::{
+    Mutex,
+    mpsc::{Receiver, channel},
+};
 
 use crate::cert_verifier::CertVerifier;
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum ClientError {
     #[error("Failed to create endpoint: {0}")]
     EndpointCreationFailed(io::Error),
@@ -54,20 +57,73 @@ pub enum ClientError {
 
     #[error("Failed to receive mDNS service event: {0}")]
     ReceivingMDNSEventFailed(RecvError),
+
+    #[error("No service found")]
+    ServiceClosed,
 }
 
+#[derive(uniffi::Record)]
+pub struct Service {
+    pub fullname: String,
+    pub hostname: String,
+    pub addresses: Vec<String>,
+    pub port: u16,
+}
+
+impl Service {
+    fn from_mdns(service: &ResolvedService) -> Self {
+        Self {
+            fullname: service.fullname.clone(),
+            hostname: service.get_hostname().to_string(),
+            addresses: service
+                .get_addresses()
+                .iter()
+                .map(|addr| addr.to_string())
+                .collect(),
+            port: service.get_port(),
+        }
+    }
+
+    pub fn first_socket_addr_v4(&self) -> Option<SocketAddr> {
+        self.addresses
+            .iter()
+            .filter_map(|ip| ip.parse().ok())
+            .find(|ip: &std::net::IpAddr| ip.is_ipv4())
+            .map(|ip| SocketAddr::new(ip, self.port))
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct ServiceReceiver {
+    receiver: Mutex<Receiver<Service>>,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl ServiceReceiver {
+    pub async fn recv(&self) -> Result<Service, ClientError> {
+        let mut receiver = self.receiver.lock().await;
+        receiver.recv().await.ok_or(ClientError::ServiceClosed)
+    }
+}
+
+#[derive(uniffi::Object)]
 pub struct Client {
     endpoint: Endpoint,
     cert: Arc<CertificateDer<'static>>,
     dir: std::path::PathBuf,
 }
 
+#[uniffi::export(async_runtime = "tokio")]
 impl Client {
+    #[uniffi::constructor]
     pub fn new(
         common_name: &str,
         domain_name: &str,
         socket_address: SocketAddr,
     ) -> Result<Self, ClientError> {
+        common::init_rust_logging_from_env_once();
+        common::ensure_rustls_ring_provider();
+
         let config_dir = get_config_dir().join("client");
         let (cert, key) = get_local_identity(common_name, domain_name, &config_dir)?;
 
@@ -81,8 +137,8 @@ impl Client {
 
         let client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(rustls_config)?));
 
-        let mut endpoint =
-            Endpoint::client(socket_address).map_err(ClientError::EndpointCreationFailed)?;
+        let mut endpoint = common::with_tokio_runtime_context(|| Endpoint::client(socket_address))
+            .map_err(ClientError::EndpointCreationFailed)?;
         endpoint.set_default_client_config(client_config);
 
         Ok(Self {
@@ -92,27 +148,44 @@ impl Client {
         })
     }
 
-    pub fn find_server(&self) -> Result<Receiver<Box<ResolvedService>>, ClientError> {
+    #[uniffi::method(name = "findServer")]
+    pub fn find_server_ffi(&self) -> Result<ServiceReceiver, ClientError> {
+        let receiver = self.find_server()?;
+        Ok(ServiceReceiver {
+            receiver: Mutex::new(receiver),
+        })
+    }
+
+    pub async fn connect_to(
+        &self,
+        server_address: SocketAddr,
+        server_name: String,
+    ) -> Result<Connection, ClientError> {
+        let connection = self.endpoint.connect(server_address, &server_name)?.await?;
+
+        Ok(classify_connection(connection, &self.cert, &self.dir)?)
+    }
+}
+
+impl Client {
+    pub fn find_server(&self) -> Result<Receiver<Service>, ClientError> {
         let mdns_daemon = ServiceDaemon::new().map_err(ClientError::CreatingMDNSDaemonFailed)?;
         let mdns_receiver = mdns_daemon
             .browse(SERVICE_TYPE)
             .map_err(ClientError::BrowsingMDNSFailed)?;
 
-        let (sender, receiver) = channel::<Box<ResolvedService>>(10);
+        let (sender, receiver) = channel::<Service>(10);
 
-        tokio::spawn(async move {
+        common::spawn_task(async move {
             let duration = std::time::Duration::from_secs(30);
 
             let result = tokio::time::timeout(duration, async {
                 while let Ok(event) = mdns_receiver.recv_async().await {
-                    match event {
-                        ServiceEvent::ServiceResolved(service) => {
-                            info!("Resolved service: {}", service.fullname);
-                            if sender.send(service).await.is_err() {
-                                break;
-                            }
+                    if let ServiceEvent::ServiceResolved(service) = event {
+                        info!("Resolved service: {}", service.fullname);
+                        if sender.send(Service::from_mdns(&service)).await.is_err() {
+                            break;
                         }
-                        _ => {}
                     }
                 }
             })
@@ -128,14 +201,12 @@ impl Client {
 
         Ok(receiver)
     }
-
-    pub async fn connect_to(
-        &self,
-        server_address: SocketAddr,
-        server_name: &str,
-    ) -> Result<Connection, ClientError> {
-        let connection = self.endpoint.connect(server_address, server_name)?.await?;
-
-        Ok(classify_connection(connection, &self.cert, &self.dir)?)
-    }
 }
+
+uniffi::custom_type!(SocketAddr, String, {
+    remote,
+    lower: |s| s.to_string(),
+    try_lift: |s| SocketAddr::from_str(&s).map_err(anyhow::Error::new)
+});
+
+uniffi::setup_scaffolding!("DeskheldClient");

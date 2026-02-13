@@ -10,7 +10,6 @@ use common::{
     config::CLIENT_NAME,
     connection::Connection::{Accepted, Quarantined},
 };
-use mdns_sd::ResolvedService;
 use rustls::crypto::ring::default_provider;
 use tokio::io::BufReader;
 use tokio::{io::AsyncBufReadExt, select};
@@ -36,13 +35,13 @@ async fn main() -> anyhow::Result<()> {
         "Browsing for a host... (To select a sepcific host to connect to, enter the index of the host during browsing)"
     );
     let mut devices_receiver = client.find_server().context("Failed to find services")?;
-    let mut devices: Vec<Box<ResolvedService>> = Vec::new();
+    let mut devices = Vec::new();
 
     let stdin = tokio::io::stdin();
     let mut reader = BufReader::new(stdin).lines();
 
     let mut i = 0;
-    let selected_device: Option<&Box<ResolvedService>>;
+    let selected_device: Option<&client::Service>;
     loop {
         select! {
             Some(device) = devices_receiver.recv() => {
@@ -85,17 +84,11 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     };
 
-    let port = selected_device.get_port();
-
     let address = selected_device
-        .get_addresses()
-        .iter()
-        .find(|ip| ip.is_ipv4())
-        .map(|ip| std::net::SocketAddr::new(ip.to_ip_addr(), port))
+        .first_socket_addr_v4()
         .context("Selected device has no address")?;
 
-    let hostname = selected_device.get_hostname();
-    let server_name = hostname.trim_end_matches('.').to_string();
+    let server_name = selected_device.hostname.trim_end_matches('.').to_string();
 
     println!(
         "Connecting to {} at {}...",
@@ -103,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let connection = client
-        .connect_to(address, &server_name)
+        .connect_to(address, server_name)
         .await
         .context("Failed to connect to server")?;
 

@@ -28,7 +28,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let (_server, mut connections) =
-        Server::open(instance_name, host_name, server_address).context("Failed to start server")?;
+        Server::create_and_open(instance_name, host_name, server_address)
+            .context("Failed to start server")?;
 
     while let Some(connection) = connections.recv().await {
         let connection = connection.context("Failed to receive connection")?;
