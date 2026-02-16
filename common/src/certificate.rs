@@ -164,7 +164,14 @@ fn save_identity(cert: &Certificate, key: &KeyPair, dir: &Path) -> Result<(), Ce
         key_path.display()
     );
 
-    // TOOD: Ordner erstellen, falls er nicht existiert
+    if !dir.exists() {
+        debug!(
+            "Identity directory '{}' does not exist, creating it",
+            dir.display()
+        );
+        fs::create_dir_all(dir).map_err(CertificateError::WritingIdentityToFileFailed)?;
+    }
+
     let cert_pem = cert.pem();
     fs::write(&cert_path, cert_pem).map_err(CertificateError::WritingIdentityToFileFailed)?;
 
