@@ -1,3 +1,5 @@
 [alias]
-run-client = "run --bin client_app"
-run-server = "run --bin server_app"
+client = "run -p client --example client"
+server = "run -p server --example server"
+run-client = "run -p client --example client"
+run-server = "run -p server --example server"

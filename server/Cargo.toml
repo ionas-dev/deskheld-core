@@ -8,9 +8,9 @@ name = "server"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib", "staticlib"]
 
-[[bin]]
+[[example]]
 name = "server"
-path = "src/bin/main.rs"
+path = "examples/server.rs"
 
 [dependencies]
 common.workspace = true
