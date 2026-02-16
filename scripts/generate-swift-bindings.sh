@@ -32,4 +32,6 @@ cargo run -q -p uniffi-bindgen -- generate \
   --out-dir "$OUT_DIR/client" \
   "$ROOT_DIR/target/debug/libclient.dylib"
 
+perl -0777 -i -pe 's/#if canImport\(DeskheldClientFFI\)\nimport DeskheldClientFFI\n#endif/#if canImport(DeskheldClientFFI)\nimport DeskheldClientFFI\n#endif\n#if canImport(DeskheldFFI)\nimport DeskheldFFI\n#endif/' "$OUT_DIR/client/DeskheldClient.swift"
+
 echo "Swift bindings generated in $OUT_DIR"
