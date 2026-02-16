@@ -29,6 +29,34 @@ jobs:
           RUSTDOCFLAGS: "-Z unstable-options --enable-index-page"
         run: cargo +nightly doc --workspace --no-deps
 
+      - name: Render workspace README with rustdoc
+        run: |
+          mkdir -p target/doc/_workspace_readme
+          rustdoc +nightly README.md -o target/doc/_workspace_readme
+
+      - name: Inject workspace README into docs index only
+        run: |
+          perl -0777 -pe '
+            BEGIN {
+              open my $fh, "<", "target/doc/_workspace_readme/README.html" or die $!;
+              local $/;
+              my $html = <$fh>;
+              close $fh;
+
+              $html =~ m#<body[^>]*>(.*)</body>#s or die "README body not found";
+              my $body = $1;
+              $body =~ s#<h1 class="title">.*?</h1>##s;
+              $body =~ s#<nav id="rustdoc">.*?</nav>##s;
+              $body =~ s#(<h[1-6][^>]*>\s*(?:<a[^>]*>§</a>)?)\s*\d+(?:\.\d+)*\s+#$1#g;
+
+              $readme = qq{<section id="workspace-readme" class="content" tabindex="-1">$body</section>};
+            }
+            s#(<section id="main-content" class="content" tabindex="-1">.*?</section>)#$1$readme#s
+              or die "missing main content section in target/doc/index.html";
+          ' target/doc/index.html > target/doc/index.with-readme.html
+          mv target/doc/index.with-readme.html target/doc/index.html
+          rm -rf target/doc/_workspace_readme
+
       - name: Disable Jekyll
         run: |
           touch target/doc/.nojekyll
